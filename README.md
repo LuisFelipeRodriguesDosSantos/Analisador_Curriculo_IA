@@ -142,6 +142,7 @@ Analisador_Curriculo_IA/
 ├── requirements.txt                # Dependências fixadas
 ├── requirements-dev.txt            # pytest, pytest-cov, ruff e mypy
 ├── pyproject.toml                  # Configuração de ruff, pytest, mypy e coverage
+├── ConteudosParaSaber.md           # Guia de conteúdos para estudar
 ├── LICENSE                         # Licença MIT
 ├── tests/
 │   ├── test_analisador.py          # Testes unitários
@@ -181,6 +182,10 @@ O currículo em PDF e a descrição da vaga são enviados à API do Google Gemin
 - Se a conexão cair no meio do streaming, a resposta parcial pode ficar na tela até a próxima análise.
 - Os limites de uso são uma proteção best-effort: a contagem por sessão reinicia ao recarregar a página e o limite por IP pode ser compartilhado em redes com NAT.
 - O uso da API está sujeito às cotas e à disponibilidade do Google Gemini.
+
+## Para aprender
+
+Quer entender ou reproduzir este projeto? O guia [ConteudosParaSaber.md](ConteudosParaSaber.md) lista os conteúdos de programação necessários, com roteiro de estudo e exercícios práticos.
 
 ## Licença
 
