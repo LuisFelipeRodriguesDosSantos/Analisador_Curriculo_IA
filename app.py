@@ -1,12 +1,21 @@
+import logging
 import os
+from io import BytesIO
 
 import streamlit as st
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+from pypdf import PdfReader
 
 # Carrega a chave API do arquivo .env
 load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("analisador_curriculo")
 
 st.set_page_config(
     page_title="Analisador de Currículo IA",
@@ -178,11 +187,25 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-api_key = os.getenv("GEMINI_API_KEY")
+TAMANHO_MAX_MB = 20
+TAMANHO_MAX_BYTES = TAMANHO_MAX_MB * 1024 * 1024
+MAX_PAGINAS = 30
+TEMPO_LIMITE_MS = 120_000
+
+
+def carregar_api_key():
+    try:
+        chave = st.secrets.get("GEMINI_API_KEY")
+    except Exception:
+        chave = None
+    return chave or os.getenv("GEMINI_API_KEY")
+
+
+api_key = carregar_api_key()
 if not api_key:
     st.error(
-        "Chave GEMINI_API_KEY não encontrada. Crie um arquivo .env na raiz do "
-        "projeto com a linha: GEMINI_API_KEY=sua_chave"
+        "Chave GEMINI_API_KEY não encontrada. Configure um arquivo .env na raiz "
+        "do projeto (local) ou os Secrets do Streamlit (deploy)."
     )
     st.stop()
 
@@ -200,11 +223,12 @@ def obter_cliente():
     return genai.Client(
         api_key=api_key,
         http_options=types.HttpOptions(
+            timeout=TEMPO_LIMITE_MS,
             retry_options=types.HttpRetryOptions(
                 attempts=2,
                 initial_delay=1.0,
                 max_delay=5.0,
-            )
+            ),
         ),
     )
 
@@ -212,11 +236,33 @@ def obter_cliente():
 client = obter_cliente()
 
 
+def validar_pdf(pdf_bytes):
+    if not pdf_bytes.startswith(b"%PDF"):
+        raise ValueError("O arquivo enviado não é um PDF válido.")
+
+    try:
+        leitor = PdfReader(BytesIO(pdf_bytes))
+    except Exception as erro:
+        logger.warning("PDF ilegível: %s", erro)
+        raise ValueError("Não foi possível ler o PDF enviado.") from erro
+
+    if leitor.is_encrypted:
+        raise ValueError(
+            "O PDF está protegido por senha. Remova a proteção e tente novamente."
+        )
+
+    if len(leitor.pages) > MAX_PAGINAS:
+        raise ValueError(f"O PDF deve ter no máximo {MAX_PAGINAS} páginas.")
+
+    texto = "".join(pagina.extract_text() or "" for pagina in leitor.pages)
+    return bool(texto.strip())
+
+
 def gerar_analise(pdf_bytes, prompt):
     ultimo_erro = None
     for modelo in MODELOS:
         try:
-            return client.models.generate_content(
+            resposta = client.models.generate_content(
                 model=modelo,
                 contents=[
                     types.Part.from_bytes(
@@ -226,9 +272,38 @@ def gerar_analise(pdf_bytes, prompt):
                     prompt,
                 ],
             )
+            logger.info("Análise concluída com o modelo %s", modelo)
+            return resposta, modelo
         except Exception as erro:
+            logger.warning("Falha no modelo %s: %s", modelo, erro)
             ultimo_erro = erro
     raise ultimo_erro
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def analisar_curriculo(pdf_bytes, descricao_vaga):
+    prompt = f"""Você é um recrutador técnico especializado em vagas de estágio em tecnologia.
+Analise o currículo em PDF anexado comparando-o com a descrição da vaga abaixo.
+
+Descrição da Vaga:
+{descricao_vaga}
+
+Forneça uma resposta estruturada em Markdown com:
+1. **Nota de Compatibilidade (0 a 100%)** e justificativa breve.
+2. **Pontos Fortes:** o que já alinha bem com a vaga.
+3. **O que está faltando (Lacunas):** habilidades, projetos ou experiências pedidas na vaga e ausentes no currículo.
+4. **Palavras-chave Sugeridas:** termos importantes da vaga para incluir no currículo (foco em filtros ATS).
+5. **Dica Prática:** uma melhoria rápida que o candidato pode fazer hoje."""
+
+    resposta, modelo = gerar_analise(pdf_bytes, prompt)
+
+    if not resposta.text:
+        raise ValueError(
+            "A IA não retornou conteúdo. O PDF pode estar protegido ou a "
+            "solicitação foi bloqueada. Tente novamente."
+        )
+
+    return resposta.text, modelo
 
 
 # Entrada do usuário
@@ -237,7 +312,9 @@ with st.container(key="formulario"):
 
     with col_curriculo:
         arquivo_pdf = st.file_uploader("Envie seu currículo (PDF)", type=["pdf"])
-        st.caption("Formato aceito: PDF, até 20 MB.")
+        st.caption(
+            f"Formato aceito: PDF, até {TAMANHO_MAX_MB} MB e {MAX_PAGINAS} páginas."
+        )
 
     with col_vaga:
         descricao_vaga = st.text_area(
@@ -255,37 +332,31 @@ analisar = st.button(
 if analisar:
     if not arquivo_pdf or not descricao_vaga.strip():
         st.warning("Por favor, envie o PDF e cole a descrição da vaga.")
-    elif arquivo_pdf.size > 20 * 1024 * 1024:
-        st.error("O PDF deve ter no máximo 20 MB.")
+    elif arquivo_pdf.size > TAMANHO_MAX_BYTES:
+        st.error(f"O PDF deve ter no máximo {TAMANHO_MAX_MB} MB.")
     else:
         with st.spinner("Analisando compatibilidade..."):
             try:
                 pdf_bytes = arquivo_pdf.read()
-
-                prompt = f"""Você é um recrutador técnico especializado em vagas de estágio em tecnologia.
-Analise o currículo em PDF anexado comparando-o com a descrição da vaga abaixo.
-
-Descrição da Vaga:
-{descricao_vaga.strip()}
-
-Forneça uma resposta estruturada em Markdown com:
-1. **Nota de Compatibilidade (0 a 100%)** e justificativa breve.
-2. **Pontos Fortes:** o que já alinha bem com a vaga.
-3. **O que está faltando (Lacunas):** habilidades, projetos ou experiências pedidas na vaga e ausentes no currículo.
-4. **Palavras-chave Sugeridas:** termos importantes da vaga para incluir no currículo (foco em filtros ATS).
-5. **Dica Prática:** uma melhoria rápida que o candidato pode fazer hoje."""
-
-                response = gerar_analise(pdf_bytes, prompt)
-
-                if response.text:
-                    with st.container(key="resultado"):
-                        st.markdown(response.text)
-                else:
-                    st.warning(
-                        "A IA não retornou conteúdo. O PDF pode estar protegido "
-                        "ou a solicitação foi bloqueada. Tente novamente."
+                tem_texto = validar_pdf(pdf_bytes)
+                if not tem_texto:
+                    st.info(
+                        "O PDF não possui texto extraível. A IA tentará "
+                        "interpretá-lo como imagem."
                     )
+
+                texto, modelo = analisar_curriculo(
+                    pdf_bytes,
+                    descricao_vaga.strip(),
+                )
+                st.session_state["resultado"] = {
+                    "texto": texto,
+                    "modelo": modelo,
+                }
+            except ValueError as erro:
+                st.error(str(erro))
             except Exception as erro:
+                logger.exception("Erro ao analisar currículo")
                 mensagem = str(erro)
                 if "503" in mensagem or "UNAVAILABLE" in mensagem:
                     st.error(
@@ -298,7 +369,16 @@ Forneça uma resposta estruturada em Markdown com:
                         "Aguarde alguns minutos e tente novamente."
                     )
                 else:
-                    st.error(f"Não foi possível analisar o currículo: {erro}")
+                    st.error(
+                        "Não foi possível analisar o currículo. "
+                        "Tente novamente em instantes."
+                    )
+
+resultado = st.session_state.get("resultado")
+if resultado:
+    with st.container(key="resultado"):
+        st.markdown(resultado["texto"])
+        st.caption(f"Análise gerada com o modelo {resultado['modelo']}.")
 
 st.markdown(
     '<p class="rodape">Análise gerada por IA — use como apoio, não como veredito final.</p>',
