@@ -249,9 +249,11 @@ def carregar_limite(nome: str, padrao: int) -> int:
         valor = None
     if valor is None:
         valor = os.getenv(nome)
+    if not isinstance(valor, (int, str)):
+        return padrao
     try:
         return max(1, int(valor))
-    except (TypeError, ValueError):
+    except ValueError:
         return padrao
 
 
@@ -382,6 +384,10 @@ with st.container(key="formulario"):
             f"Formato aceito: PDF, até {analisador.TAMANHO_MAX_MB} MB e "
             f"{analisador.MAX_PAGINAS} páginas."
         )
+        st.caption(
+            "O PDF é enviado ao Google Gemini apenas para gerar a análise e "
+            "não é armazenado pela aplicação."
+        )
 
     with col_vaga:
         descricao_vaga = st.text_area(
@@ -504,6 +510,16 @@ if historico:
             item = historico[rotulos.index(escolha)]
             st.markdown(item["texto"])
             st.caption(f"Análise gerada com o modelo {item['modelo']}.")
+
+with st.expander("Privacidade e tratamento de dados"):
+    st.write(
+        "O currículo em PDF e a descrição da vaga são enviados à API do Google "
+        "Gemini apenas para gerar a análise. A aplicação não grava os arquivos "
+        "em disco nem em banco de dados: os dados ficam na memória da sessão e "
+        "são descartados ao recarregar a página. O processamento pelo Google "
+        "segue os termos da Gemini API. Evite enviar documentos com dados "
+        "sensíveis desnecessários."
+    )
 
 st.markdown(
     '<p class="rodape">Análise gerada por IA — use como apoio, não como veredito final.</p>',

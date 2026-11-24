@@ -7,6 +7,31 @@ on:
 
 jobs:
   testes:
+    name: Testes (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Instalar dependências
+        run: pip install -r requirements-dev.txt
+
+      - name: Testes
+        run: pytest -q
+
+  qualidade:
+    name: Lint, tipos e cobertura
     runs-on: ubuntu-latest
 
     steps:
@@ -16,7 +41,7 @@ jobs:
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
           cache: pip
 
       - name: Instalar dependências
@@ -25,5 +50,8 @@ jobs:
       - name: Lint
         run: ruff check .
 
-      - name: Testes
-        run: pytest -q
+      - name: Tipos
+        run: mypy .
+
+      - name: Cobertura
+        run: pytest -q --cov --cov-report=term-missing --cov-fail-under=85

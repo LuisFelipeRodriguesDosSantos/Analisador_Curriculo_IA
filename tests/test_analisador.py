@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 import analisador
@@ -28,7 +30,7 @@ class ChunkFalso:
 
 
 class ModelosFalsos:
-    def __init__(self, respostas: dict[str, object]) -> None:
+    def __init__(self, respostas: dict[str, Any]) -> None:
         self.respostas = respostas
         self.chamadas: list[str] = []
 
@@ -41,7 +43,7 @@ class ModelosFalsos:
 
 
 class ClienteFalso:
-    def __init__(self, respostas: dict[str, object]) -> None:
+    def __init__(self, respostas: dict[str, Any]) -> None:
         self.models = ModelosFalsos(respostas)
 
 

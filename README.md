@@ -3,7 +3,7 @@
 [![CI](https://github.com/LuisFelipeRodriguesDosSantos/Analisador_Curriculo_IA/actions/workflows/ci.yml/badge.svg)](https://github.com/LuisFelipeRodriguesDosSantos/Analisador_Curriculo_IA/actions/workflows/ci.yml)
 [![Streamlit App](https://img.shields.io/badge/Streamlit-online-FF4B4B.svg)](https://luisfeliperodriguesdossantos-analisador-curriculo-ia-app-ddwzru.streamlit.app/)
 [![Licença: MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-blue.svg)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
 Aplicação web em [Streamlit](https://streamlit.io/) que usa a API **Google Gemini** para comparar um currículo em PDF com a descrição de uma vaga de estágio. A IA calcula a compatibilidade, aponta pontos fortes, lacunas e palavras-chave relevantes para passar pelos filtros **ATS** (Applicant Tracking Systems).
 
@@ -28,17 +28,17 @@ Aplicação web em [Streamlit](https://streamlit.io/) que usa a API **Google Gem
 
 ## Tecnologias
 
-- Python 3.10+
+- Python 3.11+
 - [Streamlit](https://streamlit.io/)
 - [google-genai](https://github.com/googleapis/python-genai) (SDK oficial do Gemini)
 - [pypdf](https://pypdf.readthedocs.io/)
 - [python-dotenv](https://github.com/theskumar/python-dotenv)
-- [pytest](https://pytest.org/) e [ruff](https://docs.astral.sh/ruff/) (desenvolvimento)
-- GitHub Actions (CI)
+- [pytest](https://pytest.org/), [pytest-cov](https://pytest-cov.readthedocs.io/), [ruff](https://docs.astral.sh/ruff/) e [mypy](https://mypy-lang.org/) (desenvolvimento)
+- GitHub Actions (CI) e Dependabot
 
 ## Pré-requisitos
 
-- Python 3.10 ou superior.
+- Python 3.11 ou superior.
 - Uma chave de API do Google Gemini. Obtenha a sua em [Google AI Studio](https://aistudio.google.com/apikey).
 
 ## Instalação
@@ -126,10 +126,11 @@ Aplicação publicada em https://luisfeliperodriguesdossantos-analisador-curricu
 pip install -r requirements-dev.txt
 
 ruff check .
-pytest -q
+mypy .
+pytest -q --cov --cov-report=term-missing
 ```
 
-O workflow [CI](.github/workflows/ci.yml) executa lint e testes em cada push e pull request para `main`.
+O workflow [CI](.github/workflows/ci.yml) executa lint, tipagem, testes em Python 3.11–3.14 e cobertura mínima de 85% em cada push e pull request para `main`.
 
 ## Estrutura do projeto
 
@@ -139,13 +140,16 @@ Analisador_Curriculo_IA/
 ├── analisador.py                   # Validação, prompt e integração com o Gemini
 ├── limites.py                      # Controle de uso (sessão, IP e cota diária)
 ├── requirements.txt                # Dependências fixadas
-├── requirements-dev.txt            # pytest e ruff
-├── pyproject.toml                  # Configuração de ruff e pytest
+├── requirements-dev.txt            # pytest, pytest-cov, ruff e mypy
+├── pyproject.toml                  # Configuração de ruff, pytest, mypy e coverage
 ├── LICENSE                         # Licença MIT
 ├── tests/
 │   ├── test_analisador.py          # Testes unitários
+│   ├── test_app.py                 # Testes de interface com AppTest
 │   └── test_limites.py             # Testes dos limites de uso
-├── .github/workflows/ci.yml        # Integração contínua
+├── .github/
+│   ├── workflows/ci.yml            # Integração contínua
+│   └── dependabot.yml              # Atualizações automáticas de dependências
 ├── .streamlit/
 │   ├── config.toml                 # Tema e limite de upload
 │   ├── secrets.toml.example        # Modelo de secrets para deploy
@@ -164,6 +168,11 @@ Analisador_Curriculo_IA/
 4. O PDF é enviado ao Gemini em streaming, com fallback entre modelos (`gemini-3.5-flash-lite`, `gemini-3.5-flash`, `gemini-3.1-flash-lite`, `gemini-3.8-flash`).
 5. Se PDF + vaga + modelo já foram analisados nesta sessão, o resultado vem do cache local.
 6. O relatório é exibido em Markdown, mantido na sessão e disponível para download e histórico.
+7. Os limites de uso são verificados antes de cada chamada à API.
+
+## Privacidade
+
+O currículo em PDF e a descrição da vaga são enviados à API do Google Gemini apenas para gerar a análise. A aplicação não grava os arquivos em disco nem em banco de dados: os dados ficam na memória da sessão e são descartados ao recarregar a página. O processamento pelo Google segue os termos da Gemini API. Evite enviar documentos com dados sensíveis desnecessários.
 
 ## Limitações
 
