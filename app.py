@@ -9,6 +9,7 @@ from google import genai
 from google.genai import types
 
 import analisador
+import limites
 
 # Carrega a chave API do arquivo .env
 load_dotenv()
@@ -239,6 +240,46 @@ def obter_cliente() -> genai.Client:
 
 client = obter_cliente()
 
+
+def carregar_limite(nome: str, padrao: int) -> int:
+    valor: object = None
+    try:
+        valor = st.secrets.get(nome)
+    except Exception:
+        valor = None
+    if valor is None:
+        valor = os.getenv(nome)
+    try:
+        return max(1, int(valor))
+    except (TypeError, ValueError):
+        return padrao
+
+
+@st.cache_resource
+def obter_controle_uso() -> limites.ControleDeUso:
+    return limites.ControleDeUso(
+        max_por_sessao=carregar_limite(
+            "LIMITE_ANALISES_SESSAO", limites.MAX_ANALISES_POR_SESSAO
+        ),
+        max_por_ip=carregar_limite(
+            "LIMITE_ANALISES_IP", limites.MAX_ANALISES_POR_IP
+        ),
+        max_diarias=carregar_limite(
+            "LIMITE_ANALISES_DIARIO", limites.MAX_ANALISES_DIARIAS
+        ),
+    )
+
+
+def obter_ip() -> str | None:
+    try:
+        endereco = st.context.ip_address
+    except Exception:
+        return None
+    return endereco or None
+
+
+controle_uso = obter_controle_uso()
+
 with st.sidebar:
     st.subheader("Configurações")
     modelo_escolhido = st.selectbox(
@@ -249,6 +290,17 @@ with st.sidebar:
             "até obter uma resposta."
         ),
     )
+
+    analises_realizadas = st.session_state.get("analises_realizadas", 0)
+    restantes_sessao = limites.restantes_na_sessao(
+        analises_realizadas, controle_uso.max_por_sessao
+    )
+    st.divider()
+    st.caption(
+        f"Análises nesta sessão: {analises_realizadas}/"
+        f"{controle_uso.max_por_sessao} — restam {restantes_sessao}."
+    )
+    st.caption(f"Análises restantes hoje: {controle_uso.restantes_diarias()}.")
 
 modelos = (
     analisador.MODELOS
@@ -367,6 +419,12 @@ if analisar:
 
             if chave in cache:
                 registrar_resultado(cache[chave], descricao)
+            elif analises_realizadas >= controle_uso.max_por_sessao:
+                st.error(
+                    limites.MENSAGEM_LIMITE_SESSAO.format(
+                        maximo=controle_uso.max_por_sessao
+                    )
+                )
             else:
                 st.session_state["pendente"] = {
                     "pdf_bytes": pdf_bytes,
@@ -381,35 +439,46 @@ if analisar:
 pendente = st.session_state.pop("pendente", None)
 
 if pendente:
-    with st.container(key="resultado"):
-        estado: dict[str, str] = {}
-        try:
-            with st.spinner("Analisando compatibilidade..."):
-                texto = st.write_stream(
-                    analisador.gerar_analise_stream(
-                        client,
-                        pendente["pdf_bytes"],
-                        analisador.montar_prompt(pendente["descricao"]),
-                        pendente["modelos"],
-                        estado,
+    bloqueio = controle_uso.consumir(
+        obter_ip(), st.session_state.get("analises_realizadas", 0)
+    )
+
+    if bloqueio:
+        st.session_state.pop("resultado", None)
+        st.error(bloqueio)
+    else:
+        st.session_state["analises_realizadas"] = (
+            st.session_state.get("analises_realizadas", 0) + 1
+        )
+        with st.container(key="resultado"):
+            estado: dict[str, str] = {}
+            try:
+                with st.spinner("Analisando compatibilidade..."):
+                    texto = st.write_stream(
+                        analisador.gerar_analise_stream(
+                            client,
+                            pendente["pdf_bytes"],
+                            analisador.montar_prompt(pendente["descricao"]),
+                            pendente["modelos"],
+                            estado,
+                        )
                     )
-                )
 
-            texto = texto if isinstance(texto, str) else "".join(texto)
-            if not texto.strip():
-                raise ValueError(analisador.MENSAGEM_SEM_CONTEUDO)
+                texto = texto if isinstance(texto, str) else "".join(texto)
+                if not texto.strip():
+                    raise ValueError(analisador.MENSAGEM_SEM_CONTEUDO)
 
-            resultado = {
-                "texto": texto,
-                "modelo": estado.get("modelo", pendente["modelos"][0]),
-            }
-            registrar_resultado(resultado, pendente["descricao"])
-            st.session_state.setdefault("cache_analises", {})[pendente["chave"]] = (
-                resultado
-            )
-            exibir_resultado(resultado)
-        except Exception as erro:
-            exibir_erro(erro)
+                resultado = {
+                    "texto": texto,
+                    "modelo": estado.get("modelo", pendente["modelos"][0]),
+                }
+                registrar_resultado(resultado, pendente["descricao"])
+                st.session_state.setdefault("cache_analises", {})[
+                    pendente["chave"]
+                ] = resultado
+                exibir_resultado(resultado)
+            except Exception as erro:
+                exibir_erro(erro)
 
 elif st.session_state.get("resultado"):
     resultado = st.session_state["resultado"]

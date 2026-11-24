@@ -1,6 +1,7 @@
 # 📄 Analisador de Currículo para Estágios
 
 [![CI](https://github.com/LuisFelipeRodriguesDosSantos/Analisador_Curriculo_IA/actions/workflows/ci.yml/badge.svg)](https://github.com/LuisFelipeRodriguesDosSantos/Analisador_Curriculo_IA/actions/workflows/ci.yml)
+[![Streamlit App](https://img.shields.io/badge/Streamlit-online-FF4B4B.svg)](https://luisfeliperodriguesdossantos-analisador-curriculo-ia-app-ddwzru.streamlit.app/)
 [![Licença: MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 
@@ -21,6 +22,7 @@ Aplicação web em [Streamlit](https://streamlit.io/) que usa a API **Google Gem
 - Cache em sessão para PDF + vaga idênticos, sem consumir cota da API novamente.
 - Resultado persistente entre reruns do Streamlit.
 - Fallback automático entre modelos, timeout de 2 minutos e mensagens amigáveis para erros `503` e `429`.
+- Limites de uso por sessão, por rede e a cada 24 horas para proteger a cota da API (configuráveis via Secrets).
 - Descrição da vaga delimitada no prompt e limitada a 6.000 caracteres.
 - Layout responsivo para telas pequenas.
 
@@ -78,6 +80,18 @@ GEMINI_API_KEY = "sua_chave_aqui"
 
 A aplicação lê primeiro `st.secrets` e, se não encontrar, recorre à variável de ambiente.
 
+### Limites de uso
+
+Para proteger a cota da API em um app público, a aplicação controla as análises em uma janela móvel de 24 horas:
+
+| Limite | Padrão | Chave |
+| --- | --- | --- |
+| Por sessão do navegador | 5 | `LIMITE_ANALISES_SESSAO` |
+| Por IP/rede | 20 | `LIMITE_ANALISES_IP` |
+| Total da instância | 100 | `LIMITE_ANALISES_DIARIO` |
+
+Defina os valores nos Secrets (TOML) ou como variáveis de ambiente. O limite por IP é ignorado quando o endereço do cliente não está disponível.
+
 ## Execução
 
 ```bash
@@ -87,6 +101,8 @@ streamlit run app.py
 A aplicação abre em `http://localhost:8501`.
 
 ## Deploy no Streamlit Community Cloud
+
+Aplicação publicada em https://luisfeliperodriguesdossantos-analisador-curriculo-ia-app-ddwzru.streamlit.app/.
 
 1. Acesse https://share.streamlit.io e conecte sua conta GitHub.
 2. Clique em **New app** e selecione o repositório `Analisador_Curriculo_IA`, branch `main` e arquivo `app.py`.
@@ -121,12 +137,14 @@ O workflow [CI](.github/workflows/ci.yml) executa lint e testes em cada push e p
 Analisador_Curriculo_IA/
 ├── app.py                          # Interface Streamlit e estado da sessão
 ├── analisador.py                   # Validação, prompt e integração com o Gemini
+├── limites.py                      # Controle de uso (sessão, IP e cota diária)
 ├── requirements.txt                # Dependências fixadas
 ├── requirements-dev.txt            # pytest e ruff
 ├── pyproject.toml                  # Configuração de ruff e pytest
 ├── LICENSE                         # Licença MIT
 ├── tests/
-│   └── test_analisador.py          # Testes unitários
+│   ├── test_analisador.py          # Testes unitários
+│   └── test_limites.py             # Testes dos limites de uso
 ├── .github/workflows/ci.yml        # Integração contínua
 ├── .streamlit/
 │   ├── config.toml                 # Tema e limite de upload
@@ -152,6 +170,7 @@ Analisador_Curriculo_IA/
 - A análise é gerada por IA e deve ser usada como **apoio**, não como veredito final.
 - PDFs protegidos por senha são recusados; PDFs escaneados dependem da capacidade multimodal do modelo.
 - Se a conexão cair no meio do streaming, a resposta parcial pode ficar na tela até a próxima análise.
+- Os limites de uso são uma proteção best-effort: a contagem por sessão reinicia ao recarregar a página e o limite por IP pode ser compartilhado em redes com NAT.
 - O uso da API está sujeito às cotas e à disponibilidade do Google Gemini.
 
 ## Licença
