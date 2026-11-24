@@ -1,4 +1,4 @@
-streamlit
-google-genai
-python-dotenv
-pypdf
+streamlit==1.67.0
+google-genai==3.6.1
+python-dotenv==1.2.4
+pypdf==7.1.1
